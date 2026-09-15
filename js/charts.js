@@ -159,14 +159,17 @@ class ExpenseCharts {
       100
     );
 
-    const svgWidth = 360;
-    const svgHeight = 200;
-    const padding = { top: 20, right: 15, bottom: 35, left: 20 };
+    // Dynamic width for smooth scrolling when many months (e.g. 6-12 months)
+    const count = monthlyData.length;
+    const minGroupW = count <= 4 ? 75 : count <= 6 ? 56 : 46;
+    const svgWidth = Math.max(340, count * minGroupW + 40);
+    const svgHeight = 210;
+    const padding = { top: 25, right: 15, bottom: 40, left: 20 };
     const chartW = svgWidth - padding.left - padding.right;
     const chartH = svgHeight - padding.top - padding.bottom;
 
-    const groupW = chartW / monthlyData.length;
-    const barW = Math.min(groupW * 0.35, 18);
+    const groupW = chartW / count;
+    const barW = Math.min(Math.max(groupW * 0.34, 8), 16);
 
     let bars = '';
     let xLabels = '';
@@ -186,7 +189,7 @@ class ExpenseCharts {
       bars += `
         <rect x="${incX}" y="${incY}" width="${barW}" height="${Math.max(incomeH, 2)}" rx="4"
               fill="#10b981" class="chart-bar income-bar">
-          <title>${item.label} Income: ${currency}${item.income.toFixed(2)}</title>
+          <title>${item.label} Income: ${currency}${item.income.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</title>
         </rect>
       `;
 
@@ -194,20 +197,20 @@ class ExpenseCharts {
       bars += `
         <rect x="${expX}" y="${expY}" width="${barW}" height="${Math.max(expenseH, 2)}" rx="4"
               fill="#f43f5e" class="chart-bar expense-bar">
-          <title>${item.label} Expense: ${currency}${item.expense.toFixed(2)}</title>
+          <title>${item.label} Expense: ${currency}${item.expense.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</title>
         </rect>
       `;
 
-      // X Label
+      // X Label (abbreviated month)
       xLabels += `
-        <text x="${groupX + groupW / 2}" y="${svgHeight - 10}" text-anchor="middle"
-              class="chart-axis-label">${item.label}</text>
+        <text x="${groupX + groupW / 2}" y="${svgHeight - 12}" text-anchor="middle"
+              class="chart-axis-label" style="font-size: ${count > 8 ? '10px' : '11px'};">${item.label}</text>
       `;
     });
 
     container.innerHTML = `
-      <div class="bar-chart-wrapper">
-        <svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="bar-svg">
+      <div class="bar-chart-scrollable" style="overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%;">
+        <svg viewBox="0 0 ${svgWidth} ${svgHeight}" class="bar-svg" style="min-width: ${svgWidth}px; height: auto;">
           <!-- Horizontal Grid Lines -->
           <line x1="${padding.left}" y1="${padding.top + chartH * 0.25}" x2="${svgWidth - padding.right}" y2="${padding.top + chartH * 0.25}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4" />
           <line x1="${padding.left}" y1="${padding.top + chartH * 0.5}" x2="${svgWidth - padding.right}" y2="${padding.top + chartH * 0.5}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4" />
@@ -217,10 +220,10 @@ class ExpenseCharts {
           ${bars}
           ${xLabels}
         </svg>
-        <div class="bar-chart-legend">
-          <div class="legend-badge-item"><span class="color-dot" style="background:#10b981;"></span> Income</div>
-          <div class="legend-badge-item"><span class="color-dot" style="background:#f43f5e;"></span> Expense</div>
-        </div>
+      </div>
+      <div class="bar-chart-legend">
+        <div class="legend-badge-item"><span class="color-dot" style="background:#10b981;"></span> Income</div>
+        <div class="legend-badge-item"><span class="color-dot" style="background:#f43f5e;"></span> Expense</div>
       </div>
     `;
   }

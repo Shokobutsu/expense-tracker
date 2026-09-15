@@ -53,17 +53,39 @@
       </div>
     </header>
 
-    <!-- Month Selector -->
-    <div class="month-selector">
-      <button class="month-nav-btn" id="btnPrevMonth" title="Previous Month">◀</button>
-      <span class="month-label" id="currentMonthLabel">September 2026</span>
-      <button class="month-nav-btn" id="btnNextMonth" title="Next Month">▶</button>
+    <!-- Global Flexible Period Controller (All Tabs) -->
+    <div class="period-controller">
+      <div class="period-pills-scroll" id="periodPillsBar">
+        <button class="period-pill active" data-range="month">This Month</button>
+        <button class="period-pill" data-range="3m">Past 3M</button>
+        <button class="period-pill" data-range="6m">Past 6M</button>
+        <button class="period-pill" data-range="12m">Past 12M</button>
+        <button class="period-pill" data-range="all">All Time</button>
+        <button class="period-pill" data-range="custom">Custom 📅</button>
+      </div>
+      <div class="period-sub-bar" id="periodSubBar">
+        <!-- Month Navigation (visible when range is 'month') -->
+        <div class="month-nav-row" id="monthNavRow">
+          <button class="month-nav-btn" id="btnPrevMonth" title="Previous Month">◀</button>
+          <span class="month-label" id="currentMonthLabel">September 2026</span>
+          <button class="month-nav-btn" id="btnNextMonth" title="Next Month">▶</button>
+        </div>
+        <!-- Range Span Label (visible when 3m, 6m, 12m, all) -->
+        <div class="range-span-label hidden" id="rangeSpanLabel"></div>
+        <!-- Custom Date Inputs (visible when custom) -->
+        <div class="custom-range-inputs hidden" id="customRangeRow">
+          <input type="date" id="customStartDate" class="date-input-sm" aria-label="Start Date">
+          <span class="date-sep">to</span>
+          <input type="date" id="customEndDate" class="date-input-sm" aria-label="End Date">
+          <button class="btn btn-sm btn-primary" id="btnApplyCustomRange">Apply</button>
+        </div>
+      </div>
     </div>
 
     <!-- Financial Summary Card -->
     <div class="overview-card">
       <div class="balance-section">
-        <span class="balance-label">Net Balance This Month</span>
+        <span class="balance-label" id="summaryBalanceLabel">Net Balance</span>
         <div class="metric-val" id="summaryBalance">$0.00</div>
       </div>
       <div class="stats-grid">
@@ -160,11 +182,45 @@
 
     <!-- ==================== TAB 3: BUDGETS ==================== -->
     <main class="tab-view" id="tab-budgets">
-      <div class="section-title-row" style="padding-left: 0; padding-right: 0; margin-bottom: 12px;">
-        <div>
-          <h2 class="section-title">Category Budgets</h2>
-          <span style="font-size: 0.78rem; color: var(--text-muted);">Set monthly limits to keep spending on track</span>
+      <!-- Overall Budget Hero Card -->
+      <div class="overall-budget-card" id="overallBudgetCard">
+        <div class="overall-budget-header">
+          <div>
+            <div class="budget-period-badge" id="overallBudgetBadge">Monthly Budget</div>
+            <h2 class="overall-budget-title">Total Spending Budget</h2>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="openOverallBudgetModal()">⚙️ Set Budget</button>
         </div>
+        <div class="overall-budget-metrics">
+          <div class="metric-col">
+            <span class="sub-label">Total Spent</span>
+            <span class="metric-num text-danger" id="overallBudgetSpent">$0.00</span>
+          </div>
+          <div class="metric-col">
+            <span class="sub-label">Budget Limit</span>
+            <span class="metric-num" id="overallBudgetLimit">$0.00</span>
+          </div>
+          <div class="metric-col">
+            <span class="sub-label">Remaining</span>
+            <span class="metric-num text-success" id="overallBudgetRemaining">$0.00</span>
+          </div>
+        </div>
+        <div class="progress-bar-bg" style="height: 10px; margin-top: 14px;">
+          <div class="progress-bar-fill progress-normal" id="overallBudgetProgress" style="width: 0%"></div>
+        </div>
+        <div class="overall-budget-footer" id="overallBudgetFooter">
+          <span id="overallBudgetStatusText">Tracking your spending limit</span>
+          <span id="overallBudgetPct">0%</span>
+        </div>
+      </div>
+
+      <!-- Optional Category Budgets Section -->
+      <div class="section-title-row" style="padding-left: 0; padding-right: 0; margin-top: 24px; margin-bottom: 12px;">
+        <div>
+          <h2 class="section-title">Category Limits (Optional)</h2>
+          <span style="font-size: 0.78rem; color: var(--text-muted);">Set target limits for specific categories or rely on overall budget</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="openAddCategoryBudgetModal()">+ Add Category</button>
       </div>
       <div id="budgetsList"></div>
     </main>
@@ -239,6 +295,18 @@
           </div>
           <button class="btn btn-primary btn-sm">Install App</button>
         </div>
+      </div>
+
+      <!-- Recurring Expenses & Subscriptions -->
+      <div class="settings-group">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <div>
+            <h3 class="settings-title" style="margin: 0;">🔄 Recurring Expenses & Subscriptions</h3>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Automate monthly subscriptions, bills & memberships</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openRecurringModal()">+ Add</button>
+        </div>
+        <div id="settingsRecurringList"></div>
       </div>
 
       <!-- Data Export & Backup -->
@@ -399,6 +467,14 @@
           </div>
         </div>
 
+        <!-- Recurring Option -->
+        <div class="form-group" id="txRecurringGroup" style="margin-top: 14px; margin-bottom: 6px;">
+          <label class="checkbox-container" style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: var(--text-primary);">
+            <input type="checkbox" id="txIsRecurring" style="width: 18px; height: 18px; accent-color: var(--primary);">
+            <span>🔄 Repeat monthly (Create recurring template)</span>
+          </label>
+        </div>
+
         <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">Save Transaction</button>
       </form>
     </div>
@@ -433,6 +509,124 @@
         <button class="btn btn-secondary" style="flex: 1;" onclick="closeModal('budgetModal')">Cancel</button>
         <button class="btn btn-primary" style="flex: 1;" id="btnSaveBudget">Save Budget</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: SET OVERALL BUDGET ==================== -->
+  <div class="modal-backdrop" id="overallBudgetModal">
+    <div class="modal-sheet" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Set Overall Spending Budget</h3>
+        <button class="modal-close" onclick="closeModal('overallBudgetModal')">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+        Set your total spending limit across all expenses. Category limits are completely optional.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Budget Period</label>
+        <div class="type-toggle-wrapper" style="margin-bottom: 14px;">
+          <label>
+            <input type="radio" name="overallBudgetPeriod" value="monthly" checked>
+            <span>📅 Monthly Budget</span>
+          </label>
+          <label>
+            <input type="radio" name="overallBudgetPeriod" value="yearly">
+            <span>🗓️ Yearly Budget</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" id="overallBudgetAmountLabel">Budget Amount Limit ($)</label>
+        <input type="number" step="1" id="overallBudgetAmountInput" class="form-input amount-input" placeholder="2500" required>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="closeModal('overallBudgetModal')">Cancel</button>
+        <button class="btn btn-primary" style="flex: 1;" id="btnSaveOverallBudget">Save Overall Budget</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: ADD CATEGORY BUDGET ==================== -->
+  <div class="modal-backdrop" id="addCategoryBudgetModal">
+    <div class="modal-sheet" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Category Limit</h3>
+        <button class="modal-close" onclick="closeModal('addCategoryBudgetModal')">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 14px;">
+        Select an expense category to set a monthly limit:
+      </p>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select id="selectNewBudgetCategory" class="form-input select-control"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Monthly Limit ($)</label>
+        <input type="number" step="1" id="newBudgetCategoryAmount" class="form-input amount-input" placeholder="300" required>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="closeModal('addCategoryBudgetModal')">Cancel</button>
+        <button class="btn btn-primary" style="flex: 1;" id="btnSaveNewCategoryBudget">Save Limit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: ADD / EDIT RECURRING SUBSCRIPTION ==================== -->
+  <div class="modal-backdrop" id="recurringModal">
+    <div class="modal-sheet" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="recurringModalTitle">Recurring Subscription / Bill</h3>
+        <button class="modal-close" onclick="closeModal('recurringModal')">✕</button>
+      </div>
+      <form id="recurringForm">
+        <input type="hidden" id="recurringEditId" value="">
+        <div class="form-group">
+          <label class="form-label">Subscription / Bill Name</label>
+          <input type="text" id="recName" class="form-input" placeholder="e.g. Netflix Standard, Gym, Rent" required>
+        </div>
+        <div class="filter-row" style="margin-bottom: 14px;">
+          <div>
+            <label class="form-label">Amount ($)</label>
+            <input type="number" step="0.01" id="recAmount" class="form-input amount-input" placeholder="15.00" required>
+          </div>
+          <div>
+            <label class="form-label">Frequency</label>
+            <select id="recFrequency" class="form-input select-control">
+              <option value="monthly">Monthly 🔄</option>
+              <option value="yearly">Yearly 🗓️</option>
+              <option value="weekly">Weekly 📅</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-row" style="margin-bottom: 14px;">
+          <div>
+            <label class="form-label">Category</label>
+            <select id="recCategory" class="form-input select-control" required></select>
+          </div>
+          <div>
+            <label class="form-label">Day of Month (1–31)</label>
+            <input type="number" min="1" max="31" id="recDayOfMonth" class="form-input" value="1" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select id="recPaymentMethod" class="form-input select-control">
+            <option value="Credit Card">Credit Card 💳</option>
+            <option value="Debit Card">Debit Card 🏧</option>
+            <option value="Bank Transfer">Bank Transfer 🏦</option>
+            <option value="Digital Wallet">Digital Wallet 📱</option>
+            <option value="Cash">Cash 💵</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes (Optional)</label>
+          <input type="text" id="recNotes" class="form-input" placeholder="e.g. Renews automatically on the 1st">
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeModal('recurringModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="flex: 1;">Save Subscription</button>
+        </div>
+      </form>
     </div>
   </div>
 

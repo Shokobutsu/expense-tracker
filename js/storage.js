@@ -23,13 +23,58 @@ const DEFAULT_CATEGORIES = [
 const DEFAULT_PAYMENT_METHODS = ['Cash', 'Credit Card', 'Debit Card', 'Bank Transfer', 'Digital Wallet'];
 
 const DEFAULT_BUDGETS = {
-  'Food & Dining': 400,
-  'Groceries': 350,
-  'Transport': 150,
-  'Shopping': 200,
-  'Bills & Utilities': 250,
-  'Entertainment': 100
+  overall: {
+    amount: 2500,
+    period: 'monthly' // 'monthly' | 'yearly'
+  },
+  categories: {
+    'Food & Dining': 400,
+    'Groceries': 350,
+    'Transport': 150,
+    'Shopping': 200,
+    'Bills & Utilities': 250,
+    'Entertainment': 100
+  }
 };
+
+const DEFAULT_RECURRING = [
+  {
+    id: 'rec-netflix',
+    name: 'Netflix Standard',
+    amount: 15.49,
+    type: 'expense',
+    category: 'Entertainment',
+    paymentMethod: 'Credit Card',
+    frequency: 'monthly',
+    dayOfMonth: 1,
+    active: true,
+    notes: '4K Ultra HD streaming subscription'
+  },
+  {
+    id: 'rec-spotify',
+    name: 'Spotify Premium',
+    amount: 10.99,
+    type: 'expense',
+    category: 'Entertainment',
+    paymentMethod: 'Digital Wallet',
+    frequency: 'monthly',
+    dayOfMonth: 15,
+    active: true,
+    notes: 'Music & Podcasts membership'
+  },
+  {
+    id: 'rec-gym',
+    name: 'Fitness Gym Membership',
+    amount: 45.00,
+    type: 'expense',
+    category: 'Health & Medical',
+    paymentMethod: 'Bank Transfer',
+    frequency: 'monthly',
+    dayOfMonth: 5,
+    active: true,
+    notes: 'Monthly 24hr fitness center pass'
+  }
+];
 
 const STORAGE_KEY = 'expense_tracker_state_v1';
 
@@ -37,7 +82,8 @@ class ExpenseStore {
   constructor() {
     this.state = {
       transactions: [],
-      budgets: { ...DEFAULT_BUDGETS },
+      budgets: JSON.parse(JSON.stringify(DEFAULT_BUDGETS)),
+      recurringExpenses: JSON.parse(JSON.stringify(DEFAULT_RECURRING)),
       categories: [...DEFAULT_CATEGORIES],
       settings: {
         currency: '$',
@@ -58,12 +104,34 @@ class ExpenseStore {
           ? parsed.categories
           : [...DEFAULT_CATEGORIES];
 
+        // Migrate budgets to structured overall + categories model
+        let budgets = JSON.parse(JSON.stringify(DEFAULT_BUDGETS));
+        if (parsed.budgets) {
+          if (parsed.budgets.categories !== undefined) {
+            budgets = {
+              overall: { ...DEFAULT_BUDGETS.overall, ...(parsed.budgets.overall || {}) },
+              categories: { ...(parsed.budgets.categories || {}) }
+            };
+          } else {
+            // Flat object migration from earlier version
+            budgets = {
+              overall: { amount: 2500, period: 'monthly' },
+              categories: { ...parsed.budgets }
+            };
+          }
+        }
+
+        const recurringExpenses = (parsed.recurringExpenses && Array.isArray(parsed.recurringExpenses))
+          ? parsed.recurringExpenses
+          : JSON.parse(JSON.stringify(DEFAULT_RECURRING));
+
         this.state = {
           ...this.state,
           ...parsed,
           categories,
-          settings: { ...this.state.settings, ...(parsed.settings || {}) },
-          budgets: { ...this.state.budgets, ...(parsed.budgets || {}) }
+          budgets,
+          recurringExpenses,
+          settings: { ...this.state.settings, ...(parsed.settings || {}) }
         };
       } else {
         // First run: populate with realistic demo transactions for the current month
@@ -77,6 +145,9 @@ class ExpenseStore {
     if (!this.state.categories || this.state.categories.length === 0) {
       this.state.categories = [...DEFAULT_CATEGORIES];
     }
+
+    // Auto-generate recurring transactions on startup
+    this.processRecurringExpenses();
   }
 
   populateDemoData() {
@@ -183,6 +254,8 @@ class ExpenseStore {
       date: (typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date)) ? raw.date : new Date().toISOString().slice(0, 10),
       notes: typeof raw.notes === 'string' ? raw.notes.slice(0, 500) : '',
       receipt: (typeof raw.receipt === 'string' && raw.receipt.startsWith('data:image/') && raw.receipt.length < 2000000) ? raw.receipt : null,
+      isRecurring: !!raw.isRecurring,
+      recurringId: typeof raw.recurringId === 'string' ? raw.recurringId : null,
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString()
     };
   }
@@ -203,6 +276,89 @@ class ExpenseStore {
   }
 
   // --- Transactions ---
+
+  getDateRangeBounds(rangeType = 'month', referenceMonthYear = '', customStart = '', customEnd = '') {
+    const today = new Date();
+    let refYear = today.getFullYear();
+    let refMonth = today.getMonth() + 1;
+
+    if (referenceMonthYear && /^\d{4}-\d{2}$/.test(referenceMonthYear)) {
+      const parts = referenceMonthYear.split('-').map(Number);
+      refYear = parts[0];
+      refMonth = parts[1];
+    }
+
+    let startDate = '';
+    let endDate = '';
+    let label = '';
+    let monthsCount = 1;
+
+    switch (rangeType) {
+      case 'month': {
+        const lastDay = new Date(refYear, refMonth, 0).getDate();
+        startDate = `${refYear}-${String(refMonth).padStart(2, '0')}-01`;
+        endDate = `${refYear}-${String(refMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        label = new Date(refYear, refMonth - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+        monthsCount = 1;
+        break;
+      }
+      case '3m': {
+        const dStart = new Date(refYear, refMonth - 3, 1);
+        const dEnd = new Date(refYear, refMonth, 0);
+        startDate = `${dStart.getFullYear()}-${String(dStart.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = `${dEnd.getFullYear()}-${String(dEnd.getMonth() + 1).padStart(2, '0')}-${String(dEnd.getDate()).padStart(2, '0')}`;
+        label = `Past 3 Months (${dStart.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })} – ${dEnd.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })})`;
+        monthsCount = 3;
+        break;
+      }
+      case '6m': {
+        const dStart = new Date(refYear, refMonth - 6, 1);
+        const dEnd = new Date(refYear, refMonth, 0);
+        startDate = `${dStart.getFullYear()}-${String(dStart.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = `${dEnd.getFullYear()}-${String(dEnd.getMonth() + 1).padStart(2, '0')}-${String(dEnd.getDate()).padStart(2, '0')}`;
+        label = `Past 6 Months (${dStart.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })} – ${dEnd.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })})`;
+        monthsCount = 6;
+        break;
+      }
+      case '12m': {
+        const dStart = new Date(refYear, refMonth - 12, 1);
+        const dEnd = new Date(refYear, refMonth, 0);
+        startDate = `${dStart.getFullYear()}-${String(dStart.getMonth() + 1).padStart(2, '0')}-01`;
+        endDate = `${dEnd.getFullYear()}-${String(dEnd.getMonth() + 1).padStart(2, '0')}-${String(dEnd.getDate()).padStart(2, '0')}`;
+        label = `Past 12 Months (${dStart.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })} – ${dEnd.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })})`;
+        monthsCount = 12;
+        break;
+      }
+      case 'all': {
+        startDate = '1970-01-01';
+        endDate = '2099-12-31';
+        label = 'All Time (Beginning of time)';
+        // Estimate months count based on transactions
+        const txDates = this.state.transactions.map(t => t.date).filter(Boolean).sort();
+        if (txDates.length > 0) {
+          const first = new Date(txDates[0]);
+          const last = new Date(txDates[txDates.length - 1]);
+          monthsCount = Math.max(1, (last.getFullYear() - first.getFullYear()) * 12 + (last.getMonth() - first.getMonth()) + 1);
+        } else {
+          monthsCount = 1;
+        }
+        break;
+      }
+      case 'custom': {
+        startDate = (customStart && /^\d{4}-\d{2}-\d{2}$/.test(customStart)) ? customStart : '1970-01-01';
+        endDate = (customEnd && /^\d{4}-\d{2}-\d{2}$/.test(customEnd)) ? customEnd : '2099-12-31';
+        label = `Custom (${startDate} – ${endDate})`;
+        const d1 = new Date(startDate);
+        const d2 = new Date(endDate);
+        monthsCount = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24 * 30.4)));
+        break;
+      }
+      default:
+        return this.getDateRangeBounds('month', referenceMonthYear);
+    }
+
+    return { startDate, endDate, label, monthsCount, rangeType };
+  }
 
   getTransactions(filter = {}) {
     let list = [...this.state.transactions];
@@ -228,6 +384,14 @@ class ExpenseStore {
     if (filter.monthYear) {
       // YYYY-MM
       list = list.filter(t => t.date && t.date.startsWith(filter.monthYear));
+    }
+
+    if (filter.startDate) {
+      list = list.filter(t => t.date && t.date >= filter.startDate);
+    }
+
+    if (filter.endDate) {
+      list = list.filter(t => t.date && t.date <= filter.endDate);
     }
 
     // Default sort: Date descending, then createdAt descending
@@ -276,17 +440,160 @@ class ExpenseStore {
   // --- Budgets ---
 
   getBudgets() {
-    return { ...this.state.budgets };
+    return JSON.parse(JSON.stringify(this.state.budgets));
+  }
+
+  getOverallBudget() {
+    return (this.state.budgets && this.state.budgets.overall)
+      ? { ...this.state.budgets.overall }
+      : { amount: 2500, period: 'monthly' };
+  }
+
+  setOverallBudget(amount, period = 'monthly') {
+    if (!this.state.budgets) this.state.budgets = {};
+    const val = parseFloat(amount);
+    this.state.budgets.overall = {
+      amount: isNaN(val) ? 0 : Math.max(0, val),
+      period: period === 'yearly' ? 'yearly' : 'monthly'
+    };
+    this.save();
+  }
+
+  getCategoryBudgets() {
+    return (this.state.budgets && this.state.budgets.categories)
+      ? { ...this.state.budgets.categories }
+      : {};
   }
 
   setBudget(category, amount) {
+    if (!this.state.budgets) this.state.budgets = {};
+    if (!this.state.budgets.categories) this.state.budgets.categories = {};
+
     const val = parseFloat(amount);
     if (isNaN(val) || val <= 0) {
-      delete this.state.budgets[category];
+      delete this.state.budgets.categories[category];
     } else {
-      this.state.budgets[category] = val;
+      this.state.budgets.categories[category] = val;
     }
     this.save();
+  }
+
+  deleteBudget(category) {
+    if (this.state.budgets && this.state.budgets.categories) {
+      delete this.state.budgets.categories[category];
+      this.save();
+    }
+  }
+
+  // --- Recurring Expenses ---
+
+  getRecurringExpenses() {
+    if (!this.state.recurringExpenses) this.state.recurringExpenses = [];
+    return JSON.parse(JSON.stringify(this.state.recurringExpenses));
+  }
+
+  addRecurringExpense(rec) {
+    if (!this.state.recurringExpenses) this.state.recurringExpenses = [];
+    const cleanAmt = Math.abs(parseFloat(rec.amount)) || 0;
+    const item = {
+      id: 'rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      name: typeof rec.name === 'string' ? rec.name.slice(0, 80).trim() : 'Subscription',
+      amount: Math.round(cleanAmt * 100) / 100,
+      type: rec.type === 'income' ? 'income' : 'expense',
+      category: typeof rec.category === 'string' ? rec.category.slice(0, 60).trim() : 'Other Expense',
+      paymentMethod: typeof rec.paymentMethod === 'string' ? rec.paymentMethod.slice(0, 60).trim() : 'Credit Card',
+      frequency: (rec.frequency === 'yearly' || rec.frequency === 'weekly') ? rec.frequency : 'monthly',
+      dayOfMonth: Math.max(1, Math.min(31, parseInt(rec.dayOfMonth) || 1)),
+      active: rec.active !== false,
+      notes: typeof rec.notes === 'string' ? rec.notes.slice(0, 300) : '',
+      createdAt: new Date().toISOString()
+    };
+    this.state.recurringExpenses.push(item);
+    this.save();
+    this.processRecurringExpenses();
+    return item;
+  }
+
+  updateRecurringExpense(id, updates) {
+    const idx = this.state.recurringExpenses.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      this.state.recurringExpenses[idx] = {
+        ...this.state.recurringExpenses[idx],
+        ...updates,
+        id
+      };
+      this.save();
+      return this.state.recurringExpenses[idx];
+    }
+    return null;
+  }
+
+  deleteRecurringExpense(id) {
+    this.state.recurringExpenses = this.state.recurringExpenses.filter(r => r.id !== id);
+    this.save();
+  }
+
+  toggleRecurringExpense(id) {
+    const item = this.state.recurringExpenses.find(r => r.id === id);
+    if (item) {
+      item.active = !item.active;
+      this.save();
+      if (item.active) {
+        this.processRecurringExpenses();
+      }
+      return item.active;
+    }
+    return false;
+  }
+
+  processRecurringExpenses(targetMonthYear = '') {
+    if (!this.state.recurringExpenses || this.state.recurringExpenses.length === 0) return 0;
+
+    const today = new Date();
+    const currentMY = targetMonthYear || `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const [year, month] = currentMY.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+
+    let addedCount = 0;
+
+    this.state.recurringExpenses.forEach(rec => {
+      if (!rec.active) return;
+
+      const chargeDay = Math.min(rec.dayOfMonth || 1, lastDay);
+      const chargeDate = `${currentMY}-${String(chargeDay).padStart(2, '0')}`;
+
+      // Check if a transaction generated from this recurring expense already exists for this period
+      const existing = this.state.transactions.find(t => 
+        (t.recurringId === rec.id && t.date && t.date.startsWith(currentMY)) ||
+        (t.id === `tx-rec-${rec.id}-${currentMY}`)
+      );
+
+      if (!existing) {
+        const newTx = {
+          id: `tx-rec-${rec.id}-${currentMY}`,
+          type: rec.type || 'expense',
+          amount: rec.amount,
+          category: rec.category,
+          paymentMethod: rec.paymentMethod || 'Credit Card',
+          date: chargeDate,
+          notes: `${rec.name || rec.notes || 'Recurring'}`.trim(),
+          receipt: null,
+          isRecurring: true,
+          recurringId: rec.id,
+          createdAt: new Date(year, month - 1, chargeDay, 8, 0).toISOString()
+        };
+        const sanitized = this.sanitizeTransaction(newTx);
+        if (sanitized) {
+          this.state.transactions.unshift(sanitized);
+          addedCount++;
+        }
+      }
+    });
+
+    if (addedCount > 0) {
+      this.save();
+    }
+    return addedCount;
   }
 
   // --- Categories ---
@@ -320,24 +627,66 @@ class ExpenseStore {
 
   // --- Calculations ---
 
-  getMonthlySummary(monthYear) {
-    // monthYear is YYYY-MM
-    const txs = this.getTransactions({ monthYear });
+  getRangeSummary(filter = {}) {
+    const txs = this.getTransactions(filter);
     let totalIncome = 0;
     let totalExpense = 0;
     const categoryExpenses = {};
+    const categoryIncome = {};
+    const monthlyMap = {};
 
     for (const t of txs) {
+      const amt = parseFloat(t.amount) || 0;
+      const mKey = (t.date && t.date.length >= 7) ? t.date.slice(0, 7) : 'Unknown';
+      if (!monthlyMap[mKey]) {
+        monthlyMap[mKey] = { income: 0, expense: 0 };
+      }
+
       if (t.type === 'income') {
-        totalIncome += t.amount;
+        totalIncome += amt;
+        categoryIncome[t.category] = (categoryIncome[t.category] || 0) + amt;
+        monthlyMap[mKey].income += amt;
       } else {
-        totalExpense += t.amount;
-        categoryExpenses[t.category] = (categoryExpenses[t.category] || 0) + t.amount;
+        totalExpense += amt;
+        categoryExpenses[t.category] = (categoryExpenses[t.category] || 0) + amt;
+        monthlyMap[mKey].expense += amt;
+      }
+    }
+
+    // Ensure continuous monthly keys for bounded ranges (e.g. 3m, 6m, 12m)
+    if (filter.startDate && filter.endDate && filter.startDate.length >= 7 && filter.endDate.length >= 7) {
+      const [sy, sm] = filter.startDate.slice(0, 7).split('-').map(Number);
+      const [ey, em] = filter.endDate.slice(0, 7).split('-').map(Number);
+      if (sy && sm && ey && em) {
+        let cur = new Date(sy, sm - 1, 1);
+        const stop = new Date(ey, em - 1, 1);
+        let count = 0;
+        while (cur <= stop && count < 60) {
+          const k = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+          if (!monthlyMap[k]) {
+            monthlyMap[k] = { income: 0, expense: 0 };
+          }
+          cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+          count++;
+        }
       }
     }
 
     const netSavings = totalIncome - totalExpense;
     const savingsRate = totalIncome > 0 ? ((netSavings / totalIncome) * 100).toFixed(1) : 0;
+
+    // Build monthly breakdown sorted chronologically
+    const monthlyBreakdown = Object.keys(monthlyMap).sort().map(mKey => {
+      const [y, m] = mKey.split('-').map(Number);
+      const label = (y && m) ? new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) : mKey;
+      return {
+        monthKey: mKey,
+        label,
+        income: monthlyMap[mKey].income,
+        expense: monthlyMap[mKey].expense,
+        net: monthlyMap[mKey].income - monthlyMap[mKey].expense
+      };
+    });
 
     return {
       totalIncome,
@@ -345,8 +694,14 @@ class ExpenseStore {
       netSavings,
       savingsRate,
       categoryExpenses,
+      categoryIncome,
+      monthlyBreakdown,
       transactionCount: txs.length
     };
+  }
+
+  getMonthlySummary(monthYear) {
+    return this.getRangeSummary({ monthYear });
   }
 
   // --- Export & Backup ---
