@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Personal Expense Tracker</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="Personal expense & budget tracker with camera receipts, offline PWA support, and analytics for Android and Laptop">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Expenses">
+  
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- Toast Notification Hub -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- PWA Install Banner for Mobile & Laptop -->
+  <div class="install-banner hidden" id="installBanner">
+    <div class="install-content">
+      <span>📲</span>
+      <span>Install app for 1-tap offline mobile access!</span>
+    </div>
+    <div class="install-actions">
+      <button class="btn-install-banner" id="btnInstallApp">Install</button>
+      <button class="btn-dismiss-banner" id="btnDismissInstall">✕</button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <!-- Top App Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <img src="icons/icon.svg" alt="App Logo" class="header-logo">
+        <h1 class="header-title">Expenses</h1>
+      </div>
+      <div class="header-actions">
+        <button class="btn-connect-phone" id="btnShowPairingQR" title="Scan QR Code to open on Phone">
+          <span class="btn-pulse-dot"></span>
+          <span class="btn-label-text">📱 Connect Phone</span>
+        </button>
+        <button class="icon-btn" id="btnThemeToggle" title="Toggle Dark/Light Mode">☀️</button>
+      </div>
+    </header>
+
+    <!-- Month Selector -->
+    <div class="month-selector">
+      <button class="month-nav-btn" id="btnPrevMonth" title="Previous Month">◀</button>
+      <span class="month-label" id="currentMonthLabel">September 2026</span>
+      <button class="month-nav-btn" id="btnNextMonth" title="Next Month">▶</button>
+    </div>
+
+    <!-- Financial Summary Card -->
+    <div class="overview-card">
+      <div class="balance-section">
+        <span class="balance-label">Net Balance This Month</span>
+        <div class="metric-val" id="summaryBalance">$0.00</div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <span class="stat-title">Income</span>
+          <span class="stat-num text-success" id="summaryIncome">+$0.00</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-title">Expenses</span>
+          <span class="stat-num text-danger" id="summaryExpense">-$0.00</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-title">Saved</span>
+          <span class="stat-num text-info" id="summarySavingsRate">0%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Action Shortcut Pills -->
+    <div class="quick-actions-bar">
+      <button class="btn-quick-add" data-category="Food & Dining" data-amount="15">🍔 Lunch ($15)</button>
+      <button class="btn-quick-add" data-category="Food & Dining" data-amount="5">☕ Coffee ($5)</button>
+      <button class="btn-quick-add" data-category="Groceries" data-amount="45">🛒 Groceries ($45)</button>
+      <button class="btn-quick-add" data-category="Transport" data-amount="30">⛽ Gas/Transport ($30)</button>
+    </div>
+
+    <!-- ==================== TAB 1: DASHBOARD ==================== -->
+    <main class="tab-view active" id="tab-dashboard">
+      <!-- Prominent Android Phone Pairing Banner / Card -->
+      <div class="phone-connect-banner" id="dashboardPhoneCard">
+        <div class="phone-connect-qr-wrapper">
+          <div id="dashboardQrCode" class="dashboard-qr-box"></div>
+          <button class="btn-qr-zoom" id="btnZoomQr" title="Enlarge QR Code">🔍 Enlarge</button>
+        </div>
+        <div class="phone-connect-details">
+          <div class="phone-connect-badge">📱 Open on Android Phone</div>
+          <p class="phone-connect-text">
+            Scan this QR code with your phone camera or enter this address in Chrome:
+          </p>
+          <div class="phone-connect-url-row">
+            <span class="phone-connect-url" id="dashboardMobileUrl">http://192.168.31.93:3000</span>
+            <button class="btn btn-sm btn-secondary" id="btnCopyDashboardUrl" title="Copy to clipboard">📋 Copy</button>
+          </div>
+          <div class="phone-connect-steps">
+            1. Connect phone to same Wi-Fi &bull; 2. Scan QR or open link &bull; 3. Tap <b>"Install App"</b> in Chrome
+          </div>
+        </div>
+      </div>
+
+      <!-- Spending Pace Tracker -->
+      <div id="dashboardPace"></div>
+
+      <!-- Donut Chart -->
+      <div class="section-title-row">
+        <h2 class="section-title">Spending Breakdown</h2>
+        <button class="section-action" onclick="switchTab('analytics')">View All →</button>
+      </div>
+      <div id="dashboardDonutChart"></div>
+
+      <!-- Recent Transactions -->
+      <div class="section-title-row" style="margin-top: 14px;">
+        <h2 class="section-title">Recent Transactions</h2>
+        <button class="section-action" onclick="switchTab('transactions')">See All →</button>
+      </div>
+      <div id="recentTransactionsList" class="group-items"></div>
+    </main>
+
+    <!-- ==================== TAB 2: TRANSACTIONS ==================== -->
+    <main class="tab-view" id="tab-transactions">
+      <div class="filter-bar">
+        <div class="search-input-wrapper">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="filterSearch" class="search-input" placeholder="Search notes, categories, merchants...">
+        </div>
+        <div class="filter-row">
+          <select id="filterType" class="select-control">
+            <option value="all">All Types</option>
+            <option value="expense">Expenses Only</option>
+            <option value="income">Income Only</option>
+          </select>
+          <select id="filterCategory" class="select-control">
+            <option value="all">All Categories</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-title-row" style="padding-left: 0; padding-right: 0;">
+        <span class="section-title">History</span>
+        <span id="transactionsCount" style="font-size: 0.8rem; color: var(--text-muted);">0 records</span>
+      </div>
+
+      <div id="transactionsList"></div>
+    </main>
+
+    <!-- ==================== TAB 3: BUDGETS ==================== -->
+    <main class="tab-view" id="tab-budgets">
+      <div class="section-title-row" style="padding-left: 0; padding-right: 0; margin-bottom: 12px;">
+        <div>
+          <h2 class="section-title">Category Budgets</h2>
+          <span style="font-size: 0.78rem; color: var(--text-muted);">Set monthly limits to keep spending on track</span>
+        </div>
+      </div>
+      <div id="budgetsList"></div>
+    </main>
+
+    <!-- ==================== TAB 4: ANALYTICS ==================== -->
+    <main class="tab-view" id="tab-analytics">
+      <div class="analytics-card">
+        <h3 class="section-title" style="margin-bottom: 10px;">Category Distribution</h3>
+        <div id="analyticsDonutChart"></div>
+      </div>
+
+      <div class="analytics-card">
+        <h3 class="section-title" style="margin-bottom: 10px;">Income vs Expenses (4 Months)</h3>
+        <div id="analyticsBarChart"></div>
+      </div>
+
+      <div class="analytics-card">
+        <h3 class="section-title" style="margin-bottom: 12px;">Top Expenses This Month</h3>
+        <div id="analyticsTopExpenses"></div>
+      </div>
+    </main>
+
+    <!-- ==================== TAB 5: SETTINGS ==================== -->
+    <main class="tab-view" id="tab-settings">
+      <!-- Cross Device Connection -->
+      <div class="settings-group">
+        <h3 class="settings-title">Cross-Device & Phone Pairing</h3>
+        <div class="settings-row">
+          <div>
+            <b>Connect Android Phone</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Scan QR code to open directly on your mobile</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openModal('pairingModal')">Show QR</button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <b>Laptop & Phone Sync</b>
+            <div id="settingsSyncStatus" style="font-size: 0.78rem; color: var(--text-muted);">Ready to sync</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btnSyncServer">🔄 Sync Now</button>
+        </div>
+      </div>
+
+      <!-- App Preferences -->
+      <div class="settings-group">
+        <h3 class="settings-title">Preferences</h3>
+        <div class="settings-row">
+          <div>
+            <b>Color Theme</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);" id="settingsThemeSubtitle">Midnight Slate (Dark)</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="openModal('themeModal')">🎨 Choose Theme</button>
+        </div>
+        <div class="settings-row">
+          <span>Currency Symbol</span>
+          <select id="selectCurrency" class="select-control" style="width: auto;">
+            <option value="$">USD ($)</option>
+            <option value="€">EUR (€)</option>
+            <option value="£">GBP (£)</option>
+            <option value="₹">INR (₹)</option>
+            <option value="¥">JPY (¥)</option>
+            <option value="S$">SGD (S$)</option>
+            <option value="RM">MYR (RM)</option>
+            <option value="C$">CAD (C$)</option>
+            <option value="A$">AUD (A$)</option>
+          </select>
+        </div>
+        <div class="settings-row hidden" id="btnSettingsInstall">
+          <div>
+            <b>Install Application</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Add app to phone home screen or laptop desktop</div>
+          </div>
+          <button class="btn btn-primary btn-sm">Install App</button>
+        </div>
+      </div>
+
+      <!-- Data Export & Backup -->
+      <div class="settings-group">
+        <h3 class="settings-title">Data Backup & Export</h3>
+        <div class="settings-row">
+          <div>
+            <b>Export to CSV</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Open transactions in Excel or Google Sheets</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btnExportCSV">📥 CSV</button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <b>Backup All Data</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Save complete JSON backup file</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btnExportJSON">💾 Backup</button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <b>Download Portable App</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Single self-contained HTML file (works everywhere)</div>
+          </div>
+          <a href="portable-expense-tracker.html" download="personal-expense-tracker.html" class="btn btn-secondary btn-sm" style="text-decoration: none;">📦 Download</a>
+        </div>
+        <div class="settings-row">
+          <div>
+            <b>Restore from Backup</b>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Import a previously saved JSON backup</div>
+          </div>
+          <label class="btn btn-secondary btn-sm" style="margin: 0; cursor: pointer;">
+            📂 Restore
+            <input type="file" id="fileImportJSON" accept=".json" style="display: none;">
+          </label>
+        </div>
+      </div>
+
+      <div style="text-align: center; color: var(--text-muted); font-size: 0.75rem; margin-top: 20px;">
+        Personal Expense Tracker • Offline PWA • 100% Private Local Storage
+      </div>
+    </main>
+
+    <!-- Floating Action Button (FAB) -->
+    <button class="fab-btn" id="fabAdd" title="Add New Transaction">+</button>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <button class="nav-btn active" data-tab="dashboard">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Dashboard</span>
+      </button>
+      <button class="nav-btn" data-tab="transactions">
+        <span class="nav-icon">💳</span>
+        <span class="nav-label">Records</span>
+      </button>
+      <button class="nav-btn" data-tab="budgets">
+        <span class="nav-icon">🎯</span>
+        <span class="nav-label">Budgets</span>
+      </button>
+      <button class="nav-btn" data-tab="analytics">
+        <span class="nav-icon">📈</span>
+        <span class="nav-label">Analytics</span>
+      </button>
+      <button class="nav-btn" data-tab="settings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Settings</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ==================== MODAL: ADD / EDIT TRANSACTION ==================== -->
+  <div class="modal-backdrop" id="transactionModal">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 class="modal-title" id="txModalTitle">Add Transaction</h3>
+        <button class="modal-close" onclick="closeModal('transactionModal')">✕</button>
+      </div>
+
+      <form id="transactionForm">
+        <!-- Income / Expense Segmented Control -->
+        <div class="segmented-control">
+          <label>
+            <input type="radio" name="txType" value="expense" checked>
+            <span>💸 Expense</span>
+          </label>
+          <label>
+            <input type="radio" name="txType" value="income">
+            <span>💰 Income</span>
+          </label>
+        </div>
+
+        <!-- Amount -->
+        <div class="form-group">
+          <label class="form-label">Amount</label>
+          <div class="amount-input-wrapper">
+            <input type="number" step="0.01" id="txAmount" class="form-input amount-input" placeholder="0.00" required autofocus>
+          </div>
+        </div>
+
+        <!-- Category -->
+        <div class="form-group">
+          <label class="form-label">Category</label>
+          <select id="txCategory" class="form-input select-control" required>
+            <option value="Food & Dining">🍔 Food & Dining</option>
+            <option value="Groceries">🛒 Groceries</option>
+            <option value="Transport">🚗 Transport</option>
+            <option value="Housing & Rent">🏠 Housing & Rent</option>
+            <option value="Bills & Utilities">💡 Bills & Utilities</option>
+            <option value="Shopping">🛍️ Shopping</option>
+            <option value="Entertainment">🎬 Entertainment</option>
+            <option value="Health & Medical">💊 Health & Medical</option>
+            <option value="Travel">✈️ Travel</option>
+            <option value="Other Expense">🏷️ Other Expense</option>
+          </select>
+        </div>
+
+        <!-- Payment Method & Date (Two Column) -->
+        <div class="filter-row" style="margin-bottom: 16px;">
+          <div>
+            <label class="form-label">Payment Method</label>
+            <select id="txPaymentMethod" class="form-input select-control">
+              <option value="Cash">Cash 💵</option>
+              <option value="Credit Card">Credit Card 💳</option>
+              <option value="Debit Card">Debit Card 🏧</option>
+              <option value="Bank Transfer">Bank Transfer 🏦</option>
+              <option value="Digital Wallet">Digital Wallet 📱</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">Date</label>
+            <input type="date" id="txDate" class="form-input" required>
+          </div>
+        </div>
+
+        <!-- Notes / Merchant -->
+        <div class="form-group">
+          <label class="form-label">Notes or Merchant (Optional)</label>
+          <input type="text" id="txNotes" class="form-input" placeholder="e.g. Starbucks, Dinner with Alex">
+        </div>
+
+        <!-- Camera Receipt Attachment -->
+        <div class="form-group">
+          <label class="form-label">Attach Receipt Photo</label>
+          <label class="receipt-upload-box">
+            <span style="font-size: 1.5rem;">📷</span>
+            <div>
+              <b style="font-size: 0.85rem; color: var(--text-primary);">Take Photo or Choose File</b>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">Automatically compressed for fast offline storage</div>
+            </div>
+            <!-- Android camera capture attribute -->
+            <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
+          </label>
+          
+          <div id="receiptPreviewContainer" class="receipt-preview-wrapper hidden" style="margin-top: 10px;">
+            <img id="receiptPreviewImg" src="" alt="Receipt Preview">
+            <button type="button" class="btn-remove-photo" id="btnRemoveReceipt" title="Remove photo">✕</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" style="margin-top: 20px;">Save Transaction</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: TRANSACTION DETAILS ==================== -->
+  <div class="modal-backdrop" id="detailModal">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 class="modal-title">Transaction Details</h3>
+        <button class="modal-close" onclick="closeModal('detailModal')">✕</button>
+      </div>
+      <div id="detailModalContent"></div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: SET / EDIT BUDGET ==================== -->
+  <div class="modal-backdrop" id="budgetModal">
+    <div class="modal-sheet" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Set Category Budget</h3>
+        <button class="modal-close" onclick="closeModal('budgetModal')">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+        Monthly limit for: <b id="budgetCategoryName" style="color: var(--text-primary);">Food & Dining</b>
+      </p>
+      <div class="form-group">
+        <label class="form-label">Monthly Budget Limit</label>
+        <input type="number" step="1" id="budgetAmountInput" class="form-input amount-input" placeholder="0">
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="closeModal('budgetModal')">Cancel</button>
+        <button class="btn btn-primary" style="flex: 1;" id="btnSaveBudget">Save Budget</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: FULLSCREEN RECEIPT VIEWER ==================== -->
+  <div class="modal-backdrop" id="receiptModal">
+    <div class="modal-sheet" style="text-align: center; max-width: 500px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Receipt Photo</h3>
+        <button class="modal-close" onclick="closeModal('receiptModal')">✕</button>
+      </div>
+      <img id="fullscreenReceiptImg" src="" alt="Receipt Photo" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: var(--radius-md);">
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: CONNECT PHONE (QR CODE) ==================== -->
+  <div class="modal-backdrop" id="pairingModal">
+    <div class="modal-sheet" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Connect Android Phone</h3>
+        <button class="modal-close" onclick="closeModal('pairingModal')">✕</button>
+      </div>
+      <div class="qr-container">
+        <div id="pairingQrCode"></div>
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 6px;">
+          Scan with your Android camera or open this address in Chrome:
+        </p>
+        <div style="display: flex; gap: 8px; justify-content: center; align-items: center; margin: 12px 0;">
+          <div class="pairing-url" id="pairingMobileUrl" style="margin: 0; flex: 1;">http://192.168.31.93:3000</div>
+          <button class="btn btn-secondary btn-sm" id="btnCopyModalUrl" style="padding: 10px 14px; white-space: nowrap;">📋 Copy</button>
+        </div>
+        
+        <div style="margin-top: 16px; text-align: left; background: var(--bg-input); padding: 12px 16px; border-radius: var(--radius-md); font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
+          <b>How to install on Android:</b>
+          <ol style="padding-left: 18px; margin-top: 4px;">
+            <li>Make sure your phone is connected to the same Wi-Fi.</li>
+            <li>Scan the QR code or open the link above in Chrome.</li>
+            <li>Tap Chrome's menu (<b>⋮</b>) and select <b>"Install App"</b> or <b>"Add to Home screen"</b>.</li>
+            <li>The app will install as a native icon and work offline!</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: CHOOSE COLOR THEME ==================== -->
+  <div class="modal-backdrop" id="themeModal">
+    <div class="modal-sheet" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Choose Color Theme</h3>
+        <button class="modal-close" onclick="closeModal('themeModal')">✕</button>
+      </div>
+
+      <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 8px;">
+        Choose from 3 dark and 3 light crafted fintech color palettes:
+      </p>
+
+      <!-- DARK THEMES (3) -->
+      <div class="theme-section-title">🌙 Dark Themes</div>
+      <div class="theme-grid" id="darkThemesGrid">
+        <!-- 1. Midnight Slate -->
+        <div class="theme-card" data-theme-id="dark-slate" onclick="selectTheme('dark-slate')">
+          <div class="theme-header">
+            <span class="theme-icon">🌌</span>
+            <span class="theme-check">✓</span>
+          </div>
+          <div class="theme-info">
+            <span class="theme-name">Midnight Slate</span>
+            <span class="theme-desc">Obsidian & neon indigo</span>
+          </div>
+          <div class="theme-swatches">
+            <span class="theme-swatch" title="Background" style="background: #0b0f19;"></span>
+            <span class="theme-swatch" title="Card" style="background: #1c2640;"></span>
+            <span class="theme-swatch" title="Accent" style="background: #6366f1;"></span>
+            <span class="theme-swatch" title="Text" style="background: #f8fafc;"></span>
+          </div>
+        </div>
+
+        <!-- 2. Forest Emerald -->
+        <div class="theme-card" data-theme-id="dark-emerald" onclick="selectTheme('dark-emerald')">
+          <div class="theme-header">
+            <span class="theme-icon">🌲</span>
+            <span class="theme-check">✓</span>
+          </div>
+          <div class="theme-info">
+            <span class="theme-name">Forest Emerald</span>
+            <span class="theme-desc">Pine & emerald glow</span>
+          </div>
+          <div class="theme-swatches">
+            <span class="theme-swatch" title="Background" style="background: #07130e;"></span>
+            <span class="theme-swatch" title="Card" style="background: #122c22;"></span>
+            <span class="theme-swatch" title="Accent" style="background: #10b981;"></span>
+            <span class="theme-swatch" title="Text" style="background: #f0fdf4;"></span>
+          </div>
+        </div>
+
+        <!-- 3. Amethyst Night -->
+        <div class="theme-card" data-theme-id="dark-amethyst" onclick="selectTheme('dark-amethyst')">
+          <div class="theme-header">
+            <span class="theme-icon">🔮</span>
+            <span class="theme-check">✓</span>
+          </div>
+          <div class="theme-info">
+            <span class="theme-name">Amethyst Night</span>
+            <span class="theme-desc">Cosmic violet & neon</span>
+          </div>
+          <div class="theme-swatches">
+            <span class="theme-swatch" title="Background" style="background: #0f0a1c;"></span>
+            <span class="theme-swatch" title="Card" style="background: #22183d;"></span>
+            <span class="theme-swatch" title="Accent" style="background: #a855f7;"></span>
+            <span class="theme-swatch" title="Text" style="background: #faf5ff;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIGHT THEMES (3) -->
+      <div class="theme-section-title">☀️ Light Themes</div>
+      <div class="theme-grid" id="lightThemesGrid">
+        <!-- 4. Nordic Glacier -->
+        <div class="theme-card" data-theme-id="light-nordic" onclick="selectTheme('light-nordic')">
+          <div class="theme-header">
+            <span class="theme-icon">❄️</span>
+            <span class="theme-check">✓</span>
+          </div>
+          <div class="theme-info">
+            <span class="theme-name">Nordic Glacier</span>
+            <span class="theme-desc">Crisp slate & royal blue</span>
+          </div>
+          <div class="theme-swatches">
+            <span class="theme-swatch" title="Background" style="background: #f8fafc;"></span>
+            <span class="theme-swatch" title="Card" style="background: #ffffff;"></span>
+            <span class="theme-swatch" title="Accent" style="background: #2563eb;"></span>
+            <span class="theme-swatch" title="Text" style="background: #0f172a;"></span>
+          </div>
+        </div>
+
+        <!-- 5. Sage & Sand -->
+        <div class="theme-card" data-theme-id="light-sand" onclick="selectTheme('light-sand')">
+          <div class="theme-header">
+            <span class="theme-icon">🌿</span>
+            <span class="theme-check">✓</span>
+          </div>
+          <div class="theme-info">
+            <span class="theme-name">Sage & Sand</span>
+            <span class="theme-desc">Warm linen & moss</span>
+          </div>
+          <div class="theme-swatches">
+            <span class="theme-swatch" title="Background" style="background: #f7f6f0;"></span>
+            <span class="theme-swatch" title="Card" style="background: #ffffff;"></span>
+            <span class="theme-swatch" title="Accent" style="background: #2d6a4f;"></span>
+            <span class="theme-swatch" title="Text" style="background: #1b261f;"></span>
+          </div>
+        </div>
+
+        <!-- 6. Rose Quartz -->
+        <div class="theme-card" data-theme-id="light-rose" onclick="selectTheme('light-rose')">
+          <div class="theme-header">
+            <span class="theme-icon">🌸</span>
+            <span class="theme-check">✓</span>
+          </div>
+          <div class="theme-info">
+            <span class="theme-name">Rose Quartz</span>
+            <span class="theme-desc">Soft blush & raspberry</span>
+          </div>
+          <div class="theme-swatches">
+            <span class="theme-swatch" title="Background" style="background: #faf5f7;"></span>
+            <span class="theme-swatch" title="Card" style="background: #ffffff;"></span>
+            <span class="theme-swatch" title="Accent" style="background: #e11d48;"></span>
+            <span class="theme-swatch" title="Text" style="background: #2a121c;"></span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block" style="margin-top: 18px;" onclick="closeModal('themeModal')">Done</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/qrcode.min.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
