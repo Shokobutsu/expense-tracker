@@ -18,7 +18,7 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png">
 
   <!-- Styles -->
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=2.1">
 </head>
 <body>
 
@@ -342,6 +342,20 @@
             📂 Restore
             <input type="file" id="fileImportJSON" accept=".json" style="display: none;">
           </label>
+        </div>
+      </div>
+
+      <!-- App Version & Force Refresh -->
+      <div class="settings-card" style="margin-top: 14px;">
+        <h3 class="settings-section-title">System & App Updates</h3>
+        <div class="settings-row">
+          <div>
+            <b>App Version</b> <span class="version-badge">● v2.1 Latest</span>
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 2px;">Build 2026.09.16 • Network First Sync</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="forceAppUpdate()" title="Force clear cache and reload newest version from GitHub Pages">
+            🔄 Force Refresh
+          </button>
         </div>
       </div>
 
@@ -805,8 +819,8 @@
 
   <!-- Scripts -->
   <script src="js/qrcode.min.js"></script>
-  <script src="js/storage.js"></script>
-  <script src="js/charts.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/storage.js?v=2.1"></script>
+  <script src="js/charts.js?v=2.1"></script>
+  <script src="js/app.js?v=2.1"></script>
 </body>
 </html>

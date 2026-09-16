@@ -125,6 +125,62 @@ class ExpenseStore {
           ? parsed.recurringExpenses
           : JSON.parse(JSON.stringify(DEFAULT_RECURRING));
 
+        // Auto-deduplicate existing recurringExpenses by signature
+        if (Array.isArray(recurringExpenses) && recurringExpenses.length > 1) {
+          const seen = new Map();
+          const cleanRecurring = [];
+          const idMap = new Map();
+
+          recurringExpenses.forEach(r => {
+            const sig = `${(r.name || '').toLowerCase().trim()}|${r.amount}|${r.category}|${r.dayOfMonth}`;
+            if (seen.has(sig)) {
+              const primary = seen.get(sig);
+              idMap.set(r.id, primary.id);
+            } else {
+              seen.set(sig, r);
+              cleanRecurring.push(r);
+            }
+          });
+
+          if (cleanRecurring.length < recurringExpenses.length) {
+            console.log(`[Storage] Auto-deduplicated recurring expenses: ${recurringExpenses.length} -> ${cleanRecurring.length}`);
+            recurringExpenses.length = 0;
+            recurringExpenses.push(...cleanRecurring);
+
+            if (Array.isArray(parsed.transactions)) {
+              parsed.transactions.forEach(t => {
+                if (t.recurringId && idMap.has(t.recurringId)) {
+                  t.recurringId = idMap.get(t.recurringId);
+                }
+              });
+            }
+          }
+        }
+
+        // Deduplicate transactions that are duplicates of the same recurring expense in the same month
+        if (Array.isArray(parsed.transactions) && parsed.transactions.length > 1) {
+          const seenTx = new Set();
+          const cleanTxs = [];
+          parsed.transactions.forEach(t => {
+            const month = t.date ? t.date.slice(0, 7) : '';
+            const key = t.recurringId
+              ? `${t.recurringId}|${month}`
+              : (t.isRecurring ? `${t.type}|${t.category}|${t.amount}|${month}` : null);
+            
+            if (key) {
+              if (seenTx.has(key)) {
+                return; // Skip duplicate recurring instance
+              }
+              seenTx.add(key);
+            }
+            cleanTxs.push(t);
+          });
+          if (cleanTxs.length < parsed.transactions.length) {
+            console.log(`[Storage] Auto-deduplicated transactions: ${parsed.transactions.length} -> ${cleanTxs.length}`);
+            parsed.transactions = cleanTxs;
+          }
+        }
+
         // Safeguard: Ensure existing recurring items track current month if transactions already exist
         const today = new Date();
         const curMY = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -424,6 +480,29 @@ class ExpenseStore {
     const sanitized = this.sanitizeTransaction(tx);
     if (!sanitized) return null;
 
+    // Deduplication guard: Check if an identical transaction was just created in the last 4 seconds
+    const isRapidDuplicate = this.state.transactions.some(t => {
+      const timeDiff = Math.abs(new Date(t.createdAt).getTime() - new Date(sanitized.createdAt).getTime());
+      return (
+        timeDiff < 4000 &&
+        t.type === sanitized.type &&
+        Math.abs(t.amount - sanitized.amount) < 0.001 &&
+        t.category === sanitized.category &&
+        t.date === sanitized.date &&
+        (t.notes || '') === (sanitized.notes || '')
+      );
+    });
+
+    if (isRapidDuplicate) {
+      console.warn('[Storage] Rapid duplicate transaction prevented; returning existing record.');
+      return this.state.transactions.find(t =>
+        t.type === sanitized.type &&
+        Math.abs(t.amount - sanitized.amount) < 0.001 &&
+        t.category === sanitized.category &&
+        t.date === sanitized.date
+      );
+    }
+
     this.state.transactions.unshift(sanitized);
     this.save();
     return sanitized;
@@ -438,8 +517,20 @@ class ExpenseStore {
         this.state.transactions[idx] = sanitized;
 
         // If this transaction is linked to a recurring subscription, sync the recurring template!
-        if (sanitized.recurringId) {
-          const rec = (this.state.recurringExpenses || []).find(r => r.id === sanitized.recurringId);
+        let recId = sanitized.recurringId;
+        if (!recId && sanitized.id && sanitized.id.startsWith('tx-rec-')) {
+          const matchedRec = (this.state.recurringExpenses || []).find(r => sanitized.id.includes(r.id));
+          if (matchedRec) recId = matchedRec.id;
+        }
+        if (!recId && sanitized.isRecurring) {
+          const matchedRec = (this.state.recurringExpenses || []).find(r => 
+            r.category === sanitized.category || (r.name && sanitized.notes && sanitized.notes.includes(r.name))
+          );
+          if (matchedRec) recId = matchedRec.id;
+        }
+
+        if (recId) {
+          const rec = (this.state.recurringExpenses || []).find(r => r.id === recId);
           if (rec) {
             if (updates.date && /^\d{4}-\d{2}-\d{2}$/.test(updates.date)) {
               const day = parseInt(updates.date.split('-')[2]);
@@ -545,15 +636,37 @@ class ExpenseStore {
   addRecurringExpense(rec) {
     if (!this.state.recurringExpenses) this.state.recurringExpenses = [];
     const cleanAmt = Math.abs(parseFloat(rec.amount)) || 0;
+    const cleanName = typeof rec.name === 'string' ? rec.name.slice(0, 80).trim() : 'Subscription';
+    const cleanCategory = typeof rec.category === 'string' ? rec.category.slice(0, 60).trim() : 'Other Expense';
+    const cleanDay = Math.max(1, Math.min(31, parseInt(rec.dayOfMonth) || 1));
+    const cleanRoundedAmt = Math.round(cleanAmt * 100) / 100;
+
+    // Deduplication guard: Check if an active subscription with same name/amount/category/dayOfMonth already exists
+    const existing = this.state.recurringExpenses.find(r => 
+      r.name.toLowerCase() === cleanName.toLowerCase() &&
+      Math.abs(r.amount - cleanRoundedAmt) < 0.01 &&
+      r.category === cleanCategory &&
+      r.dayOfMonth === cleanDay &&
+      r.active !== false
+    );
+    if (existing) {
+      console.warn('[Storage] Duplicate recurring expense prevented; returning existing rule:', existing.id);
+      if (rec.lastGeneratedMonth && !existing.lastGeneratedMonth) {
+        existing.lastGeneratedMonth = rec.lastGeneratedMonth;
+        this.save();
+      }
+      return existing;
+    }
+
     const item = {
       id: rec.id || ('rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)),
-      name: typeof rec.name === 'string' ? rec.name.slice(0, 80).trim() : 'Subscription',
-      amount: Math.round(cleanAmt * 100) / 100,
+      name: cleanName,
+      amount: cleanRoundedAmt,
       type: rec.type === 'income' ? 'income' : 'expense',
-      category: typeof rec.category === 'string' ? rec.category.slice(0, 60).trim() : 'Other Expense',
+      category: cleanCategory,
       paymentMethod: typeof rec.paymentMethod === 'string' ? rec.paymentMethod.slice(0, 60).trim() : 'Credit Card',
       frequency: (rec.frequency === 'yearly' || rec.frequency === 'weekly') ? rec.frequency : 'monthly',
-      dayOfMonth: Math.max(1, Math.min(31, parseInt(rec.dayOfMonth) || 1)),
+      dayOfMonth: cleanDay,
       active: rec.active !== false,
       lastGeneratedMonth: rec.lastGeneratedMonth || null,
       notes: typeof rec.notes === 'string' ? rec.notes.slice(0, 300) : '',
@@ -574,27 +687,28 @@ class ExpenseStore {
         id
       };
 
-      // Also sync this month's generated transaction if it exists in Records
-      const today = new Date();
-      const currentMY = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-      const [year, month] = currentMY.split('-').map(Number);
-      const lastDay = new Date(year, month, 0).getDate();
-
-      const existingTx = this.state.transactions.find(t =>
-        (t.recurringId === id && t.date && t.date.startsWith(currentMY)) ||
-        (t.id === `tx-rec-${id}-${currentMY}`)
+      // Also sync all transactions linked to this recurring subscription
+      const matchingTxs = this.state.transactions.filter(t =>
+        t.recurringId === id ||
+        (t.id && t.id.startsWith(`tx-rec-${id}`))
       );
 
-      if (existingTx) {
+      matchingTxs.forEach(existingTx => {
         if (updates.amount !== undefined) existingTx.amount = parseFloat(updates.amount) || existingTx.amount;
         if (updates.category !== undefined) existingTx.category = updates.category;
         if (updates.paymentMethod !== undefined) existingTx.paymentMethod = updates.paymentMethod;
         if (updates.name !== undefined && updates.name.trim()) existingTx.notes = updates.name.trim();
-        if (updates.dayOfMonth !== undefined) {
-          const d = Math.min(parseInt(updates.dayOfMonth) || 1, lastDay);
-          existingTx.date = `${currentMY}-${String(d).padStart(2, '0')}`;
+        if (updates.dayOfMonth !== undefined && existingTx.date) {
+          const parts = existingTx.date.split('-');
+          if (parts.length === 3) {
+            const y = parseInt(parts[0]);
+            const m = parseInt(parts[1]);
+            const maxDays = new Date(y, m, 0).getDate();
+            const d = Math.max(1, Math.min(parseInt(updates.dayOfMonth) || 1, maxDays));
+            existingTx.date = `${parts[0]}-${parts[1]}-${String(d).padStart(2, '0')}`;
+          }
         }
-      }
+      });
 
       this.save();
       return this.state.recurringExpenses[idx];
@@ -642,10 +756,12 @@ class ExpenseStore {
       // 2. Check if a transaction generated from this recurring expense already exists for this period
       const existing = this.state.transactions.find(t => 
         (t.recurringId === rec.id && t.date && t.date.startsWith(currentMY)) ||
-        (t.id === `tx-rec-${rec.id}-${currentMY}`)
+        (t.id === `tx-rec-${rec.id}-${currentMY}`) ||
+        (t.isRecurring && t.category === rec.category && Math.abs(t.amount - rec.amount) < 0.01 && t.date && t.date.startsWith(currentMY))
       );
 
       if (existing) {
+        if (!existing.recurringId) existing.recurringId = rec.id;
         // Mark as generated for this month so we won't evaluate again
         rec.lastGeneratedMonth = currentMY;
         stateModified = true;

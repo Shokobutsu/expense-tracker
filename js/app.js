@@ -69,15 +69,61 @@ function initApp() {
 
 // --- Service Worker & PWA ---
 
+// --- Service Worker & PWA ---
+
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('[PWA] Service Worker registered:', reg.scope))
+        .then(reg => {
+          console.log('[PWA] Service Worker registered:', reg.scope);
+          // Check for worker updates
+          if (reg.update) reg.update();
+        })
         .catch(err => console.log('[PWA] Service Worker registration failed:', err));
+    });
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        console.log('[PWA] Controller changed, updating app...');
+        showToast('App updated to latest version! Reloading...', 'success');
+        setTimeout(() => window.location.reload(), 600);
+      }
+    });
+
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'NEW_VERSION') {
+        showToast(`✨ App v${event.data.version || '2.1'} ready. Tap Force Refresh in Settings if needed.`, 'info');
+      }
     });
   }
 }
+
+async function forceAppUpdate() {
+  showToast('Clearing cache and reloading latest update...', 'info');
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const reg of registrations) {
+        await reg.unregister();
+      }
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      for (const key of keys) {
+        await caches.delete(key);
+      }
+    }
+  } catch (err) {
+    console.warn('[Cache] Error during force clear:', err);
+  }
+  // Hard reload bypassing cache with timestamp query
+  window.location.href = window.location.pathname + '?reload=' + Date.now();
+}
+window.forceAppUpdate = forceAppUpdate;
+
 
 function setupInstallPrompt() {
   const installBanner = document.getElementById('installBanner');
@@ -910,7 +956,7 @@ function renderRecurringExpensesList() {
     const cat = window.store.getCategoryByName(rec.category);
     html += `
       <div class="recurring-card-item ${rec.active ? '' : 'paused'}">
-        <div class="recurring-item-left" onclick="openRecurringModal('${rec.id}')" title="Click to edit subscription" style="cursor: pointer;">
+        <div class="recurring-item-left" onclick="openRecurringModal('${rec.id}')" title="Click anywhere to edit subscription" style="cursor: pointer;">
           <div class="recurring-icon-box" style="background: ${cat.color || '#6366f1'}20">
             ${cat.icon || '🔄'}
           </div>
@@ -929,8 +975,8 @@ function renderRecurringExpensesList() {
             <input type="checkbox" ${rec.active ? 'checked' : ''} onchange="toggleRecurring('${rec.id}')">
             <span class="toggle-slider"></span>
           </label>
-          <button class="btn-icon-edit" title="Edit subscription" onclick="openRecurringModal('${rec.id}')">✏️</button>
-          <button class="btn-icon-danger" title="Delete subscription" onclick="deleteRecurring('${rec.id}')">✕</button>
+          <button class="btn-recurring-action btn-edit" title="Edit subscription" onclick="openRecurringModal('${rec.id}')">✏️ Edit</button>
+          <button class="btn-recurring-action btn-delete" title="Delete subscription" onclick="deleteRecurring('${rec.id}')">✕</button>
         </div>
       </div>
     `;
@@ -944,6 +990,10 @@ function renderRecurringExpensesList() {
 
 function setupTransactionForm() {
   const form = document.getElementById('transactionForm');
+  if (!form) return;
+  if (form.dataset.initialized) return;
+  form.dataset.initialized = 'true';
+
   const typeRadios = document.querySelectorAll('input[name="txType"]');
   const cameraInput = document.getElementById('receiptCameraInput');
   const removePhotoBtn = document.getElementById('btnRemoveReceipt');
@@ -972,88 +1022,111 @@ function setupTransactionForm() {
     });
   }
 
-  // Form Submit
-  if (form) {
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
+  // Form Submit with Debounce & Multi-Tap Lock
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
 
-      const type = document.querySelector('input[name="txType"]:checked').value;
-      const amount = parseFloat(document.getElementById('txAmount').value);
-      const category = document.getElementById('txCategory').value;
-      const paymentMethod = document.getElementById('txPaymentMethod').value;
-      const date = document.getElementById('txDate').value;
-      const notes = document.getElementById('txNotes').value;
-      const isRecurring = document.getElementById('txIsRecurring')?.checked;
+    if (form.dataset.submitting === 'true') {
+      console.warn('[Form] Duplicate submit prevented.');
+      return;
+    }
+    form.dataset.submitting = 'true';
 
-      if (isNaN(amount) || amount <= 0) {
-        showToast('Please enter a valid amount', 'warning');
-        return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const origBtnText = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.7';
+      submitBtn.textContent = 'Saving...';
+    }
+
+    const resetSubmitting = () => {
+      form.dataset.submitting = 'false';
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '1';
+        submitBtn.textContent = origBtnText;
       }
+    };
 
-      if (editingTransactionId) {
-        const existingTx = window.store.getTransactionById(editingTransactionId);
-        window.store.updateTransaction(editingTransactionId, {
-          type,
-          amount,
-          category,
-          paymentMethod,
-          date,
-          notes,
-          receipt: currentReceiptBase64
-        });
-        if (existingTx && (existingTx.recurringId || existingTx.isRecurring)) {
-          showToast('Transaction & recurring subscription updated!', 'success');
-        } else {
-          showToast('Transaction updated', 'success');
-        }
+    const type = document.querySelector('input[name="txType"]:checked').value;
+    const amount = parseFloat(document.getElementById('txAmount').value);
+    const category = document.getElementById('txCategory').value;
+    const paymentMethod = document.getElementById('txPaymentMethod').value;
+    const date = document.getElementById('txDate').value;
+    const notes = document.getElementById('txNotes').value;
+    const isRecurring = document.getElementById('txIsRecurring')?.checked;
+
+    if (isNaN(amount) || amount <= 0) {
+      showToast('Please enter a valid amount', 'warning');
+      resetSubmitting();
+      return;
+    }
+
+    if (editingTransactionId) {
+      const existingTx = window.store.getTransactionById(editingTransactionId);
+      window.store.updateTransaction(editingTransactionId, {
+        type,
+        amount,
+        category,
+        paymentMethod,
+        date,
+        notes,
+        receipt: currentReceiptBase64
+      });
+      if (existingTx && (existingTx.recurringId || existingTx.isRecurring)) {
+        showToast('Transaction & recurring subscription updated!', 'success');
       } else {
-        const isRecurring = document.getElementById('txIsRecurring')?.checked;
-        let recurringId = null;
+        showToast('Transaction updated', 'success');
+      }
+    } else {
+      let recurringId = null;
 
-        if (isRecurring && type === 'expense') {
-          const day = parseInt(date.split('-')[2]) || 1;
-          const monthYear = (date && date.length >= 7) ? date.slice(0, 7) : new Date().toISOString().slice(0, 7);
-          const recItem = window.store.addRecurringExpense({
-            name: notes || `${category} Subscription`,
-            amount,
-            type: 'expense',
-            category,
-            paymentMethod,
-            frequency: 'monthly',
-            dayOfMonth: day,
-            active: true,
-            lastGeneratedMonth: monthYear,
-            notes: notes || 'Created from transaction'
-          });
-          if (recItem) {
-            recurringId = recItem.id;
-          }
-        }
-
-        window.store.addTransaction({
-          type,
+      if (isRecurring && type === 'expense') {
+        const day = parseInt(date.split('-')[2]) || 1;
+        const monthYear = (date && date.length >= 7) ? date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+        const recItem = window.store.addRecurringExpense({
+          name: notes || `${category} Subscription`,
           amount,
+          type: 'expense',
           category,
           paymentMethod,
-          date,
-          notes,
-          receipt: currentReceiptBase64,
-          isRecurring: !!isRecurring,
-          recurringId
+          frequency: 'monthly',
+          dayOfMonth: day,
+          active: true,
+          lastGeneratedMonth: monthYear,
+          notes: notes || 'Created from transaction'
         });
-
-        if (isRecurring && type === 'expense') {
-          showToast('Transaction saved & added to monthly recurring!', 'success');
-        } else {
-          showToast('Transaction saved', 'success');
+        if (recItem) {
+          recurringId = recItem.id;
         }
       }
 
-      closeModal('transactionModal');
-      // Auto-trigger background server sync
-      window.store.syncWithServer().catch(() => {});
-    });
-  }
+      window.store.addTransaction({
+        type,
+        amount,
+        category,
+        paymentMethod,
+        date,
+        notes,
+        receipt: currentReceiptBase64,
+        isRecurring: !!isRecurring,
+        recurringId
+      });
+
+      if (isRecurring && type === 'expense') {
+        showToast('Transaction saved & added to monthly recurring!', 'success');
+      } else {
+        showToast('Transaction saved', 'success');
+      }
+    }
+
+    closeModal('transactionModal');
+    setTimeout(resetSubmitting, 500);
+
+    // Auto-trigger background server sync
+    window.store.syncWithServer().catch(() => {});
+  });
 }
 
 function populateCategorySelector(type = 'expense', selectedCategory = null) {
@@ -1409,10 +1482,41 @@ function openRecurringModal(editId = null) {
   const form = document.getElementById('recurringForm');
   form.onsubmit = (e) => {
     e.preventDefault();
+
+    if (form.dataset.submitting === 'true') {
+      console.warn('[RecurringForm] Duplicate submit prevented.');
+      return;
+    }
+    form.dataset.submitting = 'true';
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const origBtnText = submitBtn ? submitBtn.textContent : '';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.7';
+      submitBtn.textContent = 'Saving...';
+    }
+
+    const resetSubmitting = () => {
+      form.dataset.submitting = 'false';
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '1';
+        submitBtn.textContent = origBtnText;
+      }
+    };
+
     const id = editIdInput ? editIdInput.value : '';
+    const amtVal = parseFloat(amtInput.value);
+    if (isNaN(amtVal) || amtVal <= 0) {
+      showToast('Please enter a valid amount', 'warning');
+      resetSubmitting();
+      return;
+    }
+
     const recData = {
       name: nameInput.value,
-      amount: parseFloat(amtInput.value),
+      amount: amtVal,
       frequency: freqSelect.value,
       category: catSelect.value,
       dayOfMonth: parseInt(dayInput.value) || 1,
@@ -1422,13 +1526,14 @@ function openRecurringModal(editId = null) {
 
     if (id) {
       window.store.updateRecurringExpense(id, recData);
-      showToast('Subscription updated', 'success');
+      showToast('Subscription updated & synchronized with records!', 'success');
     } else {
       window.store.addRecurringExpense(recData);
       showToast('Subscription created & scheduled', 'success');
     }
 
     closeModal('recurringModal');
+    setTimeout(resetSubmitting, 500);
     renderCurrentView();
   };
 
