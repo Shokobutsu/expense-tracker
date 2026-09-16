@@ -1980,6 +1980,14 @@ body {
   gap: 12px;
   flex: 1;
   min-width: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  transition: opacity 0.2s ease;
+}
+
+.recurring-item-left:hover {
+  opacity: 0.85;
 }
 
 .recurring-icon-box {
@@ -2040,6 +2048,21 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   text-align: right;
+}
+
+.btn-icon-edit {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+.btn-icon-edit:hover {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
 }
 
 .btn-icon-danger {

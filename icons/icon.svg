@@ -1,59 +1,114 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
+    <!-- Background Gradient -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a" />
-      <stop offset="100%" stop-color="#1e293b" />
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e1b4b" />
     </linearGradient>
-    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1" />
-      <stop offset="50%" stop-color="#8b5cf6" />
-      <stop offset="100%" stop-color="#d946ef" />
+
+    <!-- Card 1 (Indigo / Electric Purple) -->
+    <linearGradient id="indigoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#4338ca" />
     </linearGradient>
+
+    <!-- Card 2 (Cyan / Deep Teal) -->
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+
+    <!-- Emerald Coin / Vault Center -->
     <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#10b981" />
-      <stop offset="100%" stop-color="#059669" />
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="50%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#047857" />
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.4" />
+
+    <!-- Gold Accent Rim -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde68a" />
+      <stop offset="50%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+
+    <!-- Ambient Glow Filter -->
+    <filter id="ambientGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="36" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- Drop Shadow Filter -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000000" flood-opacity="0.6" />
+    </filter>
+
+    <!-- Coin Drop Shadow -->
+    <filter id="coinShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000000" flood-opacity="0.5" />
     </filter>
   </defs>
 
-  <!-- Background Base -->
-  <rect width="512" height="512" rx="120" fill="url(#bgGrad)" />
+  <!-- 1. Background Squircle Canvas -->
+  <rect width="512" height="512" rx="116" fill="url(#bgGrad)" />
 
-  <!-- Outer Glow Ring -->
-  <circle cx="256" cy="256" r="236" fill="none" stroke="url(#cardGrad)" stroke-width="6" opacity="0.4" />
+  <!-- Subtle Border Rim -->
+  <rect x="2" y="2" width="508" height="508" rx="114" fill="none" stroke="#38bdf8" stroke-width="2" stroke-opacity="0.2" />
 
-  <!-- Main Wallet Card / Slate -->
-  <g filter="url(#shadow)">
-    <rect x="96" y="140" width="320" height="232" rx="32" fill="url(#cardGrad)" />
-    
-    <!-- Magnetic Stripe / Decorative band -->
-    <path d="M96 195 H416 V225 H96 Z" fill="#000000" opacity="0.18" />
+  <!-- 2. Ambient Radiant Backlight Glow -->
+  <circle cx="256" cy="270" r="140" fill="#10b981" opacity="0.18" filter="url(#ambientGlow)" />
+  <circle cx="210" cy="190" r="120" fill="#6366f1" opacity="0.22" filter="url(#ambientGlow)" />
 
-    <!-- Wallet Clasp / Badge -->
-    <rect x="330" y="220" width="86" height="72" rx="18" fill="#1e293b" />
-    <circle cx="373" cy="256" r="14" fill="#fbbf24" stroke="#ffffff" stroke-width="3" />
+  <!-- 3. Geometric Layered Cards (Fintech Stack) -->
+  <g filter="url(#dropShadow)">
+    <!-- Back Card (Cyan / Blue tilt) -->
+    <rect x="110" y="148" width="260" height="170" rx="24" transform="rotate(-10 240 233)" fill="url(#cyanGrad)" opacity="0.85" />
+    <!-- Back Card Gloss Line -->
+    <line x1="125" y1="185" x2="330" y2="185" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.3" transform="rotate(-10 240 233)" />
 
-    <!-- Spending Trend Growth Chart Polyline -->
-    <path d="M 140 310 L 195 270 L 245 290 L 310 230" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.9" />
-    <!-- Pulse Dots -->
-    <circle cx="140" cy="310" r="7" fill="#ffffff" />
-    <circle cx="195" cy="270" r="7" fill="#ffffff" />
-    <circle cx="245" cy="290" r="7" fill="#ffffff" />
-    <circle cx="310" cy="230" r="8" fill="#10b981" stroke="#ffffff" stroke-width="3" />
-
-    <!-- Currency Symbol Emblem -->
-    <g transform="translate(135, 155)">
-      <text x="0" y="25" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="900" fill="#ffffff" opacity="0.95">$</text>
-    </g>
+    <!-- Front Card (Indigo / Purple tilt) -->
+    <rect x="142" y="165" width="260" height="170" rx="24" transform="rotate(6 272 250)" fill="url(#indigoGrad)" />
+    <!-- Front Card Chip / Magnet Accent -->
+    <rect x="175" y="200" width="46" height="34" rx="8" fill="#fbbf24" opacity="0.9" transform="rotate(6 272 250)" />
+    <line x1="175" y1="217" x2="221" y2="217" stroke="#b45309" stroke-width="2" opacity="0.6" transform="rotate(6 272 250)" />
+    <!-- Front Card Curved Gloss -->
+    <path d="M 142 270 Q 272 230 402 270" stroke="#ffffff" stroke-width="3" fill="none" opacity="0.25" transform="rotate(6 272 250)" />
   </g>
 
-  <!-- Floating Green Growth Chip -->
-  <g filter="url(#shadow)" transform="translate(110, 320)">
-    <rect width="130" height="54" rx="27" fill="url(#emeraldGrad)" />
-    <path d="M22 32 L34 20 L44 30 L58 16" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-    <path d="M50 16 H58 V24" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-    <text x="70" y="34" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800" fill="#ffffff">+42%</text>
+  <!-- 4. Central Radiant Coin & Growth Star Emblem -->
+  <g filter="url(#coinShadow)">
+    <!-- Outer Gold Bezel -->
+    <circle cx="256" cy="295" r="92" fill="url(#goldGrad)" />
+    <circle cx="256" cy="295" r="84" fill="#0f172a" />
+
+    <!-- Inner Emerald Core -->
+    <circle cx="256" cy="295" r="78" fill="url(#emeraldGrad)" />
+
+    <!-- Coin Inner Inset Ring -->
+    <circle cx="256" cy="295" r="66" fill="none" stroke="#a7f3d0" stroke-width="3" stroke-dasharray="8 6" opacity="0.75" />
+
+    <!-- Upward Growth Spark & Dynamic Trend Symbol -->
+    <!-- Upward Trend Arrow -->
+    <path d="M 216 322 L 244 286 L 268 304 L 298 266" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 278 266 H 298 V 286" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Pulse nodes on trend line -->
+    <circle cx="216" cy="322" r="5" fill="#ffffff" />
+    <circle cx="244" cy="286" r="5" fill="#ffffff" />
+    <circle cx="268" cy="304" r="5" fill="#ffffff" />
+    <circle cx="298" cy="266" r="6" fill="#fde68a" stroke="#ffffff" stroke-width="2" />
+  </g>
+
+  <!-- 5. Floating Specular Sparkles / Star Nodes -->
+  <g fill="#ffffff">
+    <!-- Top-Right Precision Star -->
+    <path d="M 390 105 Q 390 125 410 125 Q 390 125 390 145 Q 390 125 370 125 Q 390 125 390 105 Z" opacity="0.9" />
+    <!-- Bottom-Left Micro Star -->
+    <path d="M 105 380 Q 105 394 119 394 Q 105 394 105 408 Q 105 394 91 394 Q 105 394 105 380 Z" opacity="0.75" />
+    <!-- Small Glow Dots -->
+    <circle cx="430" cy="180" r="4" fill="#38bdf8" opacity="0.8" />
+    <circle cx="85" cy="250" r="3.5" fill="#34d399" opacity="0.8" />
   </g>
 </svg>

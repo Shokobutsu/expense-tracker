@@ -910,7 +910,7 @@ function renderRecurringExpensesList() {
     const cat = window.store.getCategoryByName(rec.category);
     html += `
       <div class="recurring-card-item ${rec.active ? '' : 'paused'}">
-        <div class="recurring-item-left">
+        <div class="recurring-item-left" onclick="openRecurringModal('${rec.id}')" title="Click to edit subscription" style="cursor: pointer;">
           <div class="recurring-icon-box" style="background: ${cat.color || '#6366f1'}20">
             ${cat.icon || '🔄'}
           </div>
@@ -929,6 +929,7 @@ function renderRecurringExpensesList() {
             <input type="checkbox" ${rec.active ? 'checked' : ''} onchange="toggleRecurring('${rec.id}')">
             <span class="toggle-slider"></span>
           </label>
+          <button class="btn-icon-edit" title="Edit subscription" onclick="openRecurringModal('${rec.id}')">✏️</button>
           <button class="btn-icon-danger" title="Delete subscription" onclick="deleteRecurring('${rec.id}')">✕</button>
         </div>
       </div>
@@ -990,6 +991,7 @@ function setupTransactionForm() {
       }
 
       if (editingTransactionId) {
+        const existingTx = window.store.getTransactionById(editingTransactionId);
         window.store.updateTransaction(editingTransactionId, {
           type,
           amount,
@@ -999,21 +1001,19 @@ function setupTransactionForm() {
           notes,
           receipt: currentReceiptBase64
         });
-        showToast('Transaction updated', 'success');
+        if (existingTx && (existingTx.recurringId || existingTx.isRecurring)) {
+          showToast('Transaction & recurring subscription updated!', 'success');
+        } else {
+          showToast('Transaction updated', 'success');
+        }
       } else {
-        window.store.addTransaction({
-          type,
-          amount,
-          category,
-          paymentMethod,
-          date,
-          notes,
-          receipt: currentReceiptBase64
-        });
+        const isRecurring = document.getElementById('txIsRecurring')?.checked;
+        let recurringId = null;
 
         if (isRecurring && type === 'expense') {
           const day = parseInt(date.split('-')[2]) || 1;
-          window.store.addRecurringExpense({
+          const monthYear = (date && date.length >= 7) ? date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+          const recItem = window.store.addRecurringExpense({
             name: notes || `${category} Subscription`,
             amount,
             type: 'expense',
@@ -1022,8 +1022,27 @@ function setupTransactionForm() {
             frequency: 'monthly',
             dayOfMonth: day,
             active: true,
+            lastGeneratedMonth: monthYear,
             notes: notes || 'Created from transaction'
           });
+          if (recItem) {
+            recurringId = recItem.id;
+          }
+        }
+
+        window.store.addTransaction({
+          type,
+          amount,
+          category,
+          paymentMethod,
+          date,
+          notes,
+          receipt: currentReceiptBase64,
+          isRecurring: !!isRecurring,
+          recurringId
+        });
+
+        if (isRecurring && type === 'expense') {
           showToast('Transaction saved & added to monthly recurring!', 'success');
         } else {
           showToast('Transaction saved', 'success');
@@ -1199,6 +1218,12 @@ function openTransactionDetailModal(tx) {
         <span>Payment Method:</span>
         <b>${cleanMethod}</b>
       </div>
+      ${(tx.isRecurring || tx.recurringId) ? `
+        <div class="detail-row">
+          <span>Recurring:</span>
+          <b style="color: var(--accent-primary);">🔄 Monthly Subscription</b>
+        </div>
+      ` : ''}
       ${tx.notes ? `
         <div class="detail-row notes-row">
           <span>Notes:</span>
@@ -1236,7 +1261,11 @@ function openTransactionDetailModal(tx) {
   });
 
   document.getElementById('btnDeleteTx').addEventListener('click', () => {
-    if (confirm('Delete this transaction?')) {
+    const isRec = tx.isRecurring || tx.recurringId;
+    const msg = isRec
+      ? 'Delete this recurring transaction from Records?\n(Note: Your recurring subscription template in Settings remains intact and will not recreate this month\'s record).'
+      : 'Delete this transaction?';
+    if (confirm(msg)) {
       window.store.deleteTransaction(tx.id);
       closeModal('detailModal');
       showToast('Transaction deleted', 'info');

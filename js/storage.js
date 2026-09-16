@@ -125,6 +125,21 @@ class ExpenseStore {
           ? parsed.recurringExpenses
           : JSON.parse(JSON.stringify(DEFAULT_RECURRING));
 
+        // Safeguard: Ensure existing recurring items track current month if transactions already exist
+        const today = new Date();
+        const curMY = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+        recurringExpenses.forEach(rec => {
+          if (!rec.lastGeneratedMonth) {
+            const hasTx = (parsed.transactions || []).some(t =>
+              (t.recurringId === rec.id && t.date && t.date.startsWith(curMY)) ||
+              (t.id === `tx-rec-${rec.id}-${curMY}`)
+            );
+            if (hasTx) {
+              rec.lastGeneratedMonth = curMY;
+            }
+          }
+        });
+
         this.state = {
           ...this.state,
           ...parsed,
@@ -421,6 +436,32 @@ class ExpenseStore {
       const sanitized = this.sanitizeTransaction(merged);
       if (sanitized) {
         this.state.transactions[idx] = sanitized;
+
+        // If this transaction is linked to a recurring subscription, sync the recurring template!
+        if (sanitized.recurringId) {
+          const rec = (this.state.recurringExpenses || []).find(r => r.id === sanitized.recurringId);
+          if (rec) {
+            if (updates.date && /^\d{4}-\d{2}-\d{2}$/.test(updates.date)) {
+              const day = parseInt(updates.date.split('-')[2]);
+              if (day >= 1 && day <= 31) {
+                rec.dayOfMonth = day;
+              }
+            }
+            if (updates.amount !== undefined) {
+              rec.amount = sanitized.amount;
+            }
+            if (updates.category) {
+              rec.category = sanitized.category;
+            }
+            if (updates.paymentMethod) {
+              rec.paymentMethod = sanitized.paymentMethod;
+            }
+            if (updates.notes !== undefined && updates.notes.trim()) {
+              rec.name = updates.notes.trim();
+            }
+          }
+        }
+
         this.save();
         return sanitized;
       }
@@ -429,6 +470,15 @@ class ExpenseStore {
   }
 
   deleteTransaction(id) {
+    const tx = this.getTransactionById(id);
+    if (tx && tx.recurringId) {
+      // Find the recurring rule and mark its processed month,
+      // so deleting a transaction instance in Records does NOT trigger processRecurringExpenses to resurrect it!
+      const rec = (this.state.recurringExpenses || []).find(r => r.id === tx.recurringId);
+      if (rec && tx.date) {
+        rec.lastGeneratedMonth = tx.date.slice(0, 7);
+      }
+    }
     this.state.transactions = this.state.transactions.filter(t => t.id !== id);
     this.save();
   }
@@ -496,7 +546,7 @@ class ExpenseStore {
     if (!this.state.recurringExpenses) this.state.recurringExpenses = [];
     const cleanAmt = Math.abs(parseFloat(rec.amount)) || 0;
     const item = {
-      id: 'rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      id: rec.id || ('rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)),
       name: typeof rec.name === 'string' ? rec.name.slice(0, 80).trim() : 'Subscription',
       amount: Math.round(cleanAmt * 100) / 100,
       type: rec.type === 'income' ? 'income' : 'expense',
@@ -505,8 +555,9 @@ class ExpenseStore {
       frequency: (rec.frequency === 'yearly' || rec.frequency === 'weekly') ? rec.frequency : 'monthly',
       dayOfMonth: Math.max(1, Math.min(31, parseInt(rec.dayOfMonth) || 1)),
       active: rec.active !== false,
+      lastGeneratedMonth: rec.lastGeneratedMonth || null,
       notes: typeof rec.notes === 'string' ? rec.notes.slice(0, 300) : '',
-      createdAt: new Date().toISOString()
+      createdAt: rec.createdAt || new Date().toISOString()
     };
     this.state.recurringExpenses.push(item);
     this.save();
@@ -522,6 +573,29 @@ class ExpenseStore {
         ...updates,
         id
       };
+
+      // Also sync this month's generated transaction if it exists in Records
+      const today = new Date();
+      const currentMY = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      const [year, month] = currentMY.split('-').map(Number);
+      const lastDay = new Date(year, month, 0).getDate();
+
+      const existingTx = this.state.transactions.find(t =>
+        (t.recurringId === id && t.date && t.date.startsWith(currentMY)) ||
+        (t.id === `tx-rec-${id}-${currentMY}`)
+      );
+
+      if (existingTx) {
+        if (updates.amount !== undefined) existingTx.amount = parseFloat(updates.amount) || existingTx.amount;
+        if (updates.category !== undefined) existingTx.category = updates.category;
+        if (updates.paymentMethod !== undefined) existingTx.paymentMethod = updates.paymentMethod;
+        if (updates.name !== undefined && updates.name.trim()) existingTx.notes = updates.name.trim();
+        if (updates.dayOfMonth !== undefined) {
+          const d = Math.min(parseInt(updates.dayOfMonth) || 1, lastDay);
+          existingTx.date = `${currentMY}-${String(d).padStart(2, '0')}`;
+        }
+      }
+
       this.save();
       return this.state.recurringExpenses[idx];
     }
@@ -555,42 +629,57 @@ class ExpenseStore {
     const lastDay = new Date(year, month, 0).getDate();
 
     let addedCount = 0;
+    let stateModified = false;
 
     this.state.recurringExpenses.forEach(rec => {
       if (!rec.active) return;
 
-      const chargeDay = Math.min(rec.dayOfMonth || 1, lastDay);
-      const chargeDate = `${currentMY}-${String(chargeDay).padStart(2, '0')}`;
+      // 1. If this recurring rule was ALREADY processed/generated for this month, SKIP!
+      if (rec.lastGeneratedMonth === currentMY) {
+        return;
+      }
 
-      // Check if a transaction generated from this recurring expense already exists for this period
+      // 2. Check if a transaction generated from this recurring expense already exists for this period
       const existing = this.state.transactions.find(t => 
         (t.recurringId === rec.id && t.date && t.date.startsWith(currentMY)) ||
         (t.id === `tx-rec-${rec.id}-${currentMY}`)
       );
 
-      if (!existing) {
-        const newTx = {
-          id: `tx-rec-${rec.id}-${currentMY}`,
-          type: rec.type || 'expense',
-          amount: rec.amount,
-          category: rec.category,
-          paymentMethod: rec.paymentMethod || 'Credit Card',
-          date: chargeDate,
-          notes: `${rec.name || rec.notes || 'Recurring'}`.trim(),
-          receipt: null,
-          isRecurring: true,
-          recurringId: rec.id,
-          createdAt: new Date(year, month - 1, chargeDay, 8, 0).toISOString()
-        };
-        const sanitized = this.sanitizeTransaction(newTx);
-        if (sanitized) {
-          this.state.transactions.unshift(sanitized);
-          addedCount++;
-        }
+      if (existing) {
+        // Mark as generated for this month so we won't evaluate again
+        rec.lastGeneratedMonth = currentMY;
+        stateModified = true;
+        return;
+      }
+
+      // 3. Otherwise, generate exactly ONE transaction for this period
+      const chargeDay = Math.min(rec.dayOfMonth || 1, lastDay);
+      const chargeDate = `${currentMY}-${String(chargeDay).padStart(2, '0')}`;
+
+      const newTx = {
+        id: `tx-rec-${rec.id}-${currentMY}`,
+        type: rec.type || 'expense',
+        amount: rec.amount,
+        category: rec.category,
+        paymentMethod: rec.paymentMethod || 'Credit Card',
+        date: chargeDate,
+        notes: `${rec.name || rec.notes || 'Recurring'}`.trim(),
+        receipt: null,
+        isRecurring: true,
+        recurringId: rec.id,
+        createdAt: new Date(year, month - 1, chargeDay, 8, 0).toISOString()
+      };
+
+      const sanitized = this.sanitizeTransaction(newTx);
+      if (sanitized) {
+        this.state.transactions.unshift(sanitized);
+        rec.lastGeneratedMonth = currentMY;
+        addedCount++;
+        stateModified = true;
       }
     });
 
-    if (addedCount > 0) {
+    if (stateModified) {
       this.save();
     }
     return addedCount;
